@@ -1,0 +1,193 @@
+---
+title: "GBM Analysis"
+author: "Anonymous"
+date: '2022-08-22'
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+This project aims at creating a Gradient Boosting Machine (GBM) model of house prices in Liverpool in order to predict house prices based on the following number of factors:
+i)	Mean price – the mean sale price of the houses
+ii)	Gs_area – the green space areas
+iii)	U16 – percentage of under 16 children
+iv)	U25 – percentage of 16–25-year-old people
+v)	U45 – percentage of 25–44-year-old people
+vi)	U65 – percentage of 45–64-year-old people
+vii)	O65 – percentage of people over the age of 64
+viii)	Umplyd – the percentage of unemployed people
+The data above was collected and will be used for the analysis of the house prices in Liverpool.
+The GBM model is a machine learning method that is used in classification and regression analysis, which gives a model for prediction in the form of multiple learning algorithms that are basically decision trees in order to achieve a better performance than that which could be achieved by using a single learning algorithm alone.
+In the case that a decision tree is the weak learner, the algorithm that results is called the gradient-boosted trees and it usually has a higher performance than the random forest algorithm.
+The advantages of using the GBM include:
+i)	Higher predictive accuracy than other predictive models. 
+ii)	High flexibility due to the fact that it can optimize on the loss functions and hence provide tuning options.
+iii)	It does not require data preprocessing and works best with numerical and categorical values.
+Due to the advantages highlighted above, the GBM model can be used to predict the house prices using the variables indicated above for this project.
+
+### Load packages and data
+```{r}
+load("resit_data.RData")
+df <- resit_data # COPY to a global variablelibrary(caret)
+library(caret)
+library(gbm)
+library(tidyverse)
+head(df) # display the first rows of the data
+```
+
+### Drop the NA values from the data for analysis
+```{r}
+df <- df[!is.na(df)]
+```
+
+### Split the data to train and test
+```{r}
+dpart <- createDataPartition(resit_data$meanPrice, p = 0.7, list = F)
+traindata <- resit_data[dpart, ]
+test <- resit_data[-dpart,]
+print("Train")
+print(nrow(traindata))
+print("Test")
+print(nrow(test))
+```
+
+View the GBM help
+```{r}
+modelLookup("gbm")
+```
+### GBM model tuning
+```{r}
+caretGrid <- expand.grid(interaction.depth=c(1, 3, 5), n.trees = (0:50)*50,
+shrinkage=c(0.01, 0.001),
+n.minobsinnode=10)
+metric <- "RMSE"
+```
+
+### Create a Train Control for model sampling
+The statement below creates a 10-fold cross validation train control
+```{r}
+trainControl <- trainControl(method="cv", number=10)
+```
+
+Run the method over the grid
+```{r}
+set.seed(99)
+df <- traindata
+gbm.caret <- train(meanPrice ~ ., data=traindata, distribution="gaussian", method="gbm",
+trControl=trainControl, verbose=FALSE,
+tuneGrid=caretGrid, metric=metric, bag.fraction=0.7)
+```
+
+
+### Examine the results
+```{r}
+## Examine the results
+print(gbm.caret)
+ggplot(gbm.caret)
+# explore the results
+names(gbm.caret)
+# see best tune
+gbm.caret[6]
+
+```
+### View the grid results
+```{r}
+# see grid results
+head(data.frame(gbm.caret[4]))
+# check
+dim(caretGrid)
+dim(data.frame(gbm.caret[4]))
+
+```
+### Examine the best result
+Find the best parameter combination and put it in a dataframe
+
+```{r}
+
+grid_df = data.frame(gbm.caret[4])
+head(grid_df)
+```
+### confirm best model and assign to params object
+```{r}
+grid_df[which.min(grid_df$results.RMSE), ]
+```
+### Assign the parameters and inspect
+```{r}
+params = grid_df[which.min(grid_df$results.RMSE), 1:4 ]
+params
+```
+### Examine the Data
+The figures below show the distribution of the numeric values using histograms
+```{r}
+df %>% mutate(ID = 1:n()) %>% as_tibble() %>%
+select( -meanPrice) %>%
+pivot_longer(-ID) %>%
+ggplot(aes(x = value)) + geom_histogram(col = "red", fill = "salmon") +
+facet_wrap(~name, scales = "free")
+
+```
+
+## Train our model
+
+```{r}
+## Create final model
+# because parameters are known, model can be fit without parameter tuning
+fitControl <- trainControl(method = "none", classProbs = FALSE)
+# extract the values from params
+gbmFit <- train(meanPrice ~ ., data=df, distribution="gaussian", method = "gbm",
+trControl = fitControl,
+verbose = FALSE,
+## only a single model is passed to the
+tuneGrid = data.frame(interaction.depth = 3,
+n.trees = 750,
+shrinkage = .01,
+n.minobsinnode = 10),
+metric = metric)
+```
+
+### Predict the Mean price
+
+```{r}
+## Create final model
+# because parameters are known, model can be fit without parameter tuning
+fitControl <- trainControl(method = "none", classProbs = FALSE)
+# extract the values from params
+gbmFit <- train(meanPrice ~ ., data=df, distribution="gaussian", method = "gbm",
+trControl = fitControl,
+verbose = FALSE,
+## only a single model is passed to the
+tuneGrid = data.frame(interaction.depth = 3,
+n.trees = 750,
+shrinkage = .01,
+n.minobsinnode = 10),
+metric = metric)
+```
+
+## Prediction and Model evaluation
+
+```{r}
+
+# generate predictions
+pred = predict(gbmFit, newdata = df)
+# plot these against observed
+data.frame(Predicted = pred, Observed = df$meanPrice) %>%
+ggplot(aes(x = Observed, y = Predicted))+ geom_point(size = 1, alpha = 0.5)+
+geom_smooth(method = "lm")
+```
+
+### Get the prediction Accuracy
+
+```{r}
+# generate some prediction accuracy measures
+postResample(pred = pred, obs = test$meanPrice)
+```
+
+### Examine the Important Variables
+```{r}
+varImp(gbmFit, scale = FALSE)
+```
